@@ -5,7 +5,7 @@ on:
     tags:
       - dev-*
 env: 
-  ECR_REPO_URL: ${{ secrets.DEV_ECR_REPO }}
+  ECR_REPO_URL: ${{ secrets.DEV_ECR_REPO_URL }}
   NAMESPACE: ext-apps
   REDASH_SERVER: redash
   REDASH_ADHOCWORKER: redash-adhocworker
