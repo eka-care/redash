@@ -1,18 +1,27 @@
 name: dev-cd
 on:
-  workflow_dispatch
+  push:
+    # Publish `prod-1.2.3` tags as releases.
+    tags:
+      - dev-*
 env: 
-  ECR_REPOSITORY: redash
+  ECR_REPO_URL: ${{ secrets.PROD_ECR_REPO }}
+  NAMESPACE: ext-apps
   REDASH_SERVER: redash
-  REDASH_WORKER: redash_worker
+  REDASH_ADHOCWORKER: redash-adhocworker
+  REDASH_GENERICWORKER: redash-genericworker
+  REDASH_SCHEDULEDWORKER: redash-scheduledworker
+  REDASH_SCHEDULER: redash-scheduler
   
 jobs:
-  build-and-deploy: 
-  
+  build-image: 
     runs-on: ubuntu-20.04
     environment: staging
+    outputs:
+      TAG: ${{ steps.get_tag.outputs.TAG }}
+      VERSION: ${{ steps.get_version.outputs.VERSION }}      
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Get the version
         id: get_version
@@ -24,13 +33,13 @@ jobs:
           aws-access-key-id: ${{ secrets.DEV_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.DEV_AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.DEV_AWS_Region }}
-          
-          
+
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
       - name: Build docker images
+        id: build_image
         env:
           ECR_REPOSITORY: ${{ github.event.repository.name }}
           IMAGE_TAG: ${{ steps.get_version.outputs.VERSION }}
@@ -46,6 +55,7 @@ jobs:
           fi          
           
       - name: Push image to Amazon ECR
+        id: push_to_ecr
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ github.event.repository.name }}
@@ -59,18 +69,32 @@ jobs:
         run: |
           echo ${{ github.action.release }}
           
+      - name: Set up kubectl
+        id: setup_kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/1.25.1/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          
       - name: Get Existing Tag
+        id: get_tag
         env:
           KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
         run: |
-          TAG=`kubectl get deployment $REDASH_SERVER -n $NAMESPACE | grep "Image"`
-          
+          echo $KUBE_CONFIG_DATA > $HOME/.kube/config
+          echo TAG=`kubectl get deployment $REDASH_SERVER -n $NAMESPACE  -o=jsonpath='{$.spec.template.spec.containers[:1].image}' | awk -F':' '{print $2}'` >> $GITHUB_
+
+  deploy-to-staging: 
+    runs-on: ubuntu-20.04
+    environment: staging
+    steps:
+
       - name: deploy redash-server to staging cluster
         uses: kodermax/kubectl-aws-eks@master
         env:
           KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ steps.get_version.outputs.VERSION }}
         with:
           args: set image deployment/$REDASH_SERVER $REDASH_SERVER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
@@ -80,5 +104,73 @@ jobs:
         env:
           KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
         with:
-          args: rollout status deployment/redash          
+          args: rollout status deployment/$REDASH_SERVER          
+
+      - name: deploy redash-adhocworker to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.get_version.outputs.VERSION }}
+        with:
+          args: set image deployment/$REDASH_ADHOCWORKER $REDASH_ADHOCWORKER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+
+      - name: verify redash-adhocworker deployment to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+        with:
+          args: rollout status deployment/$REDASH_ADHOCWORKER          
+
+
+      - name: deploy redash-genericworker to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.get_version.outputs.VERSION }}
+        with:
+          args: set image deployment/$REDASH_GENERICWORKER $REDASH_GENERICWORKER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: verify redash-genericworker deployment to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+        with:
+          args: rollout status deployment/$REDASH_GENERICWORKER         
+
+      - name: deploy redash-scheduledworker to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.get_version.outputs.VERSION }}
+        with:
+          args: set image deployment/$REDASH_SCHEDULEDWORKER $REDASH_SCHEDULEDWORKER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+
+      - name: verify redash-scheduledworker deployment to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+        with:
+          args: rollout status deployment/$REDASH_SCHEDULEDWORKER          
+
+      - name: deploy redash-scheduler to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.get_version.outputs.VERSION }}
+        with:
+          args: set image deployment/$REDASH_SCHEDULER $REDASH_SCHEDULER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+
+      - name: verify redash-scheduler deployment to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+        with:
+          args: rollout status deployment/$REDASH_SCHEDULER          
 
