@@ -5,7 +5,7 @@ on:
     tags:
       - dev-*
 env: 
-  ECR_REPO_URL: ${{ secrets.PROD_ECR_REPO }}
+  ECR_REPO_URL: ${{ secrets.DEV_ECR_REPO }}
   NAMESPACE: ext-apps
   REDASH_SERVER: redash
   REDASH_ADHOCWORKER: redash-adhocworker
@@ -85,8 +85,8 @@ jobs:
           echo TAG=`kubectl get deployment $REDASH_SERVER -n $NAMESPACE  -o=jsonpath='{$.spec.template.spec.containers[:1].image}' | awk -F':' '{print $2}'` >> $GITHUB_
 
   deploy-to-staging: 
-    runs-on: ubuntu-20.04
     needs: build-image
+    runs-on: ubuntu-20.04
     environment: staging
     steps:
 
@@ -97,7 +97,7 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ steps.get_version.outputs.VERSION }}
         with:
-          args: set image deployment/$REDASH_SERVER $REDASH_SERVER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          args: set image deployment/$REDASH_SERVER $REDASH_SERVER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -n $NAMESPACE 
 
 
       - name: verify redash-server deployment to staging cluster
@@ -105,7 +105,7 @@ jobs:
         env:
           KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
         with:
-          args: rollout status deployment/$REDASH_SERVER          
+          args: rollout status deployment/$REDASH_SERVER -n $NAMESPACE           
 
       - name: deploy redash-adhocworker to staging cluster
         uses: kodermax/kubectl-aws-eks@master
@@ -114,7 +114,7 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ steps.get_version.outputs.VERSION }}
         with:
-          args: set image deployment/$REDASH_ADHOCWORKER $REDASH_ADHOCWORKER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          args: set image deployment/$REDASH_ADHOCWORKER $REDASH_ADHOCWORKER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -n $NAMESPACE 
 
 
       - name: verify redash-adhocworker deployment to staging cluster
@@ -122,7 +122,7 @@ jobs:
         env:
           KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
         with:
-          args: rollout status deployment/$REDASH_ADHOCWORKER          
+          args: rollout status deployment/$REDASH_ADHOCWORKER -n $NAMESPACE          
 
 
       - name: deploy redash-genericworker to staging cluster
@@ -132,14 +132,14 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ steps.get_version.outputs.VERSION }}
         with:
-          args: set image deployment/$REDASH_GENERICWORKER $REDASH_GENERICWORKER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          args: set image deployment/$REDASH_GENERICWORKER $REDASH_GENERICWORKER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -n $NAMESPACE 
 
       - name: verify redash-genericworker deployment to staging cluster
         uses: kodermax/kubectl-aws-eks@master
         env:
           KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
         with:
-          args: rollout status deployment/$REDASH_GENERICWORKER         
+          args: rollout status deployment/$REDASH_GENERICWORKER -n $NAMESPACE          
 
       - name: deploy redash-scheduledworker to staging cluster
         uses: kodermax/kubectl-aws-eks@master
@@ -148,7 +148,7 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ steps.get_version.outputs.VERSION }}
         with:
-          args: set image deployment/$REDASH_SCHEDULEDWORKER $REDASH_SCHEDULEDWORKER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          args: set image deployment/$REDASH_SCHEDULEDWORKER $REDASH_SCHEDULEDWORKER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -n $NAMESPACE 
 
 
       - name: verify redash-scheduledworker deployment to staging cluster
@@ -156,7 +156,7 @@ jobs:
         env:
           KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
         with:
-          args: rollout status deployment/$REDASH_SCHEDULEDWORKER          
+          args: rollout status deployment/$REDASH_SCHEDULEDWORKER -n $NAMESPACE          
 
       - name: deploy redash-scheduler to staging cluster
         uses: kodermax/kubectl-aws-eks@master
@@ -165,7 +165,7 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ steps.get_version.outputs.VERSION }}
         with:
-          args: set image deployment/$REDASH_SCHEDULER $REDASH_SCHEDULER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          args: set image deployment/$REDASH_SCHEDULER $REDASH_SCHEDULER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -n $NAMESPACE 
 
 
       - name: verify redash-scheduler deployment to staging cluster
@@ -173,5 +173,104 @@ jobs:
         env:
           KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
         with:
-          args: rollout status deployment/$REDASH_SCHEDULER          
+          args: rollout status deployment/$REDASH_SCHEDULER -n $NAMESPACE         
 
+  revert-on-failure: 
+    needs: deploy-to-staging
+    if: failure()
+    runs-on: ubuntu-20.04
+    environment: staging
+    steps:
+
+      - name: Reverting to Previous Tag
+        env: 
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+        run: 
+          echo $TAG    
+
+      - name: deploy redash-server to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+
+        with:
+          args: set image deployment/$REDASH_SERVER $REDASH_SERVER=$ECR_REGISTRY/$ECR_REPOSITORY:$TAG -n $NAMESPACE 
+
+
+      - name: verify redash-server deployment to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+        with:
+          args: rollout status deployment/$REDASH_SERVER -n $NAMESPACE
+
+      - name: deploy redash-adhocworker to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+
+        with:
+          args: set image deployment/$REDASH_ADHOCWORKER $REDASH_ADHOCWORKER=$ECR_REGISTRY/$ECR_REPOSITORY:$TAG -n $NAMESPACE 
+
+
+      - name: verify redash-adhocworker deployment to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+        with:
+          args: rollout status deployment/$REDASH_ADHOCWORKER -n $NAMESPACE 
+
+
+      - name: deploy redash-genericworker to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+        with:
+          args: set image deployment/$REDASH_GENERICWORKER $REDASH_GENERICWORKER=$ECR_REGISTRY/$ECR_REPOSITORY:$TAG -n $NAMESPACE 
+
+      - name: verify redash-genericworker deployment to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+        with:
+          args: rollout status deployment/$REDASH_GENERICWORKER -n $NAMESPACE 
+
+      - name: deploy redash-scheduledworker to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+        with:
+          args: set image deployment/$REDASH_SCHEDULEDWORKER $REDASH_SCHEDULEDWORKER=$ECR_REGISTRY/$ECR_REPOSITORY:$TAG -n $NAMESPACE 
+
+
+      - name: verify redash-scheduledworker deployment to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+        with:
+          args: rollout status deployment/$REDASH_SCHEDULEDWORKER -n $NAMESPACE 
+
+      - name: deploy redash-scheduler to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          TAG: ${{ steps.get_tag.outputs.TAG }}
+        with:
+          args: set image deployment/$REDASH_SCHEDULER $REDASH_SCHEDULER=$ECR_REGISTRY/$ECR_REPOSITORY:$TAG -n $NAMESPACE 
+
+
+      - name: verify redash-scheduler deployment to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+        with:
+          args: rollout status deployment/$REDASH_SCHEDULER -n $NAMESPACE 
