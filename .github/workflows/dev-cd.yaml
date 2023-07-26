@@ -44,15 +44,17 @@ jobs:
           ECR_REPOSITORY: ${{ github.event.repository.name }}
           IMAGE_TAG: ${{ steps.get_version.outputs.VERSION }}
         run: |
-          output=$(aws ecr list-images --region ap-south-1 --repository-name $ECR_REPOSITORY  | grep latest | tr -d '" ,' | cut -d ':' -f 2)
-          echo $output
-          if [[ "$output" == "latest" ]]
-          then
-             docker pull $ECR_REPO_URL/$ECR_REPOSITORY:latest
-             docker build --cache-from $ECR_REPO_URL/$ECR_REPOSITORY:latest -t $ECR_REPO_URL/$ECR_REPOSITORY:$IMAGE_TAG -f Dockerfile .
-          else
-             docker build -t $ECR_REPO_URL/$ECR_REPOSITORY:$IMAGE_TAG -f Dockerfile .
-          fi          
+          #output=$(aws ecr list-images --region ap-south-1 --repository-name $ECR_REPOSITORY  | grep latest | tr -d '" ,' | cut -d ':' -f 2)
+          #echo $output
+          #if [[ "$output" == "latest" ]]
+          #then
+          #   docker pull $ECR_REPO_URL/$ECR_REPOSITORY:latest
+          #   docker build --cache-from $ECR_REPO_URL/$ECR_REPOSITORY:latest -t $ECR_REPO_URL/$ECR_REPOSITORY:$IMAGE_TAG -f Dockerfile .
+          #else
+          #   docker build -t $ECR_REPO_URL/$ECR_REPOSITORY:$IMAGE_TAG -f Dockerfile .
+          #fi       
+          docker build -t $ECR_REPO_URL/$ECR_REPOSITORY:$IMAGE_TAG -f Dockerfile .
+
           
       - name: Push image to Amazon ECR
         id: push_to_ecr
