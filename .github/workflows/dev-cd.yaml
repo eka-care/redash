@@ -2,10 +2,12 @@ name: dev-cd
 on:
   workflow_dispatch
 env: 
-  test: test
+  ECR_REPOSITORY: redash
+  REDASH_SERVER: redash
+  REDASH_WORKER: redash_worker
   
 jobs:
-  docker-build: 
+  build-and-deploy: 
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v2
@@ -36,9 +38,9 @@ jobs:
           if [[ "$output" == "latest" ]]
           then
              docker pull $ECR_REPO_URL/$ECR_REPOSITORY:latest
-             docker build --cache-from $ECR_REPO_URL/$ECR_REPOSITORY:latest -t $ECR_REPO_URL/$ECR_REPOSITORY:$IMAGE_TAG -f Dockerfile-abdm .
+             docker build --cache-from $ECR_REPO_URL/$ECR_REPOSITORY:latest -t $ECR_REPO_URL/$ECR_REPOSITORY:$IMAGE_TAG -f Dockerfile .
           else
-             docker build -t $ECR_REPO_URL/$ECR_REPOSITORY:$IMAGE_TAG -f Dockerfile-abdm .
+             docker build -t $ECR_REPO_URL/$ECR_REPOSITORY:$IMAGE_TAG -f Dockerfile .
           fi          
           
       - name: Push image to Amazon ECR
@@ -55,3 +57,26 @@ jobs:
         run: |
           echo ${{ github.action.release }}
           
+      - name: Get Existing Tag
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+        run: |
+          TAG=`kubectl get deployment $REDASH_SERVER -n $NAMESPACE | grep "Image"`
+          
+      - name: deploy redash-server to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        with:
+          args: set image deployment/$REDASH_SERVER $REDASH_SERVER=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+
+      - name: verify redash-server deployment to staging cluster
+        uses: kodermax/kubectl-aws-eks@master
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
+        with:
+          args: rollout status deployment/redash          
+
