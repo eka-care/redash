@@ -86,6 +86,7 @@ jobs:
 
   deploy-to-staging: 
     runs-on: ubuntu-20.04
+    needs: build-image
     environment: staging
     steps:
 
