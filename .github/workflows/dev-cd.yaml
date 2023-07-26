@@ -83,6 +83,7 @@ jobs:
         env:
           KUBE_CONFIG_DATA: ${{ secrets.DEV_KUBE_CONFIG_DATA_EXTERNAL }}
         run: |
+          touch $HOME/.kube/config
           echo $KUBE_CONFIG_DATA > $HOME/.kube/config
           echo TAG=`kubectl get deployment $REDASH_SERVER -n $NAMESPACE  -o=jsonpath='{$.spec.template.spec.containers[:1].image}' | awk -F':' '{print $2}'` >> $GITHUB_
 
